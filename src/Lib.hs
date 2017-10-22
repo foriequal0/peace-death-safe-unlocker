@@ -15,7 +15,7 @@ someFunc = do
     initial <- getInitial
     patt <- getPatt
     if is_transformable patt initial
-    then putStrLn . show $ solution patt initial
+    then putStrLn . showTrace $ solution patt initial
     else putStrLn "insolvable"
 
 getInput :: String -> (String -> Maybe a) -> IO a
@@ -33,60 +33,44 @@ getInitial =
     \line -> do
         let w = words line
         guard $ length w == 6
-        [a, b, c, d, e, f] <- mapM readMaybe w
+        l@[a, b, c, d, e, f] <- mapM readMaybe w
+        guard $ all (\x -> x >= 1 && x <= 6) l
         return $ liftTuple Identity (a, b, c, d, e, f)
 
 getPatt =
-    getInput "target pattern: " $
+    getInput "target pattern (0 to blank): " $
     \line -> do
         let w = words line
         guard $ length w == 6
-        [a, b, c, d, e, f] <- mapM readMaybe w
-        return $ liftTuple (\x -> if x == 0 then Nothing else Just x) (a, b, c, d, e, f)
+        l@[a, b, c, d, e, f] <- mapM readMaybe w
+        guard $ all (\x -> x >= 1 && x <= 6) l
+        return $ liftTuple zeroToNothing (a, b, c, d, e, f)
+  where
+      zeroToNothing x = if x == 0 then Nothing else Just x
 
 solution :: PatternTuple -> Tuple -> St
 solution patt initial =
-    head $ match_filter $ all_combinations initial
+    head $ Prelude.filter (matches patt . getTuple) $ all_combinations
   where
-    match_filter = Prelude.filter match_state
-    match_state (St (a, b, c, d, e, f) _) =
-        let (a', b', c', d', e', f') = patt
-            pairs = [(a, a'), (b, b'), (c, c'), (d, d'), (e, e'), (f, f')]
-        in all (\(x, x') -> maybe True (== runIdentity x) x') pairs
-
-all_combinations :: Tuple -> [St]
-all_combinations initial =
-    concat $ iterate (\x -> (go  $ x)) [mkState initial]
-  where
-      go :: [St] -> [St]
-      go xs = do
-          x <- xs
-          f <- all_trans
-          let next = f x
-          pure $ next
-      notDup seen (St tip _) = not $ member tip seen
-      dedup :: [St] -> [St]
-      dedup = dedup' Set.empty
-      dedup' _ [] = []
-      dedup' a (b:c) = if Set.member (getTuple b) a
-          then dedup' a c
-          else b: dedup' (Set.insert (getTuple b) a) c
+    all_combinations =
+        concat $ iterate step [mkState initial]
+    step xs =
+        [ f x
+        | x <- xs
+        , f <- all_trans ]
 
 data St = St
     { getTuple :: Tuple
     , getTrace :: [String]
     }
 
+showTrace St { getTrace = log } =
+    concat $ intersperse " -> " (reverse log)
+
 instance Show St where
-    show (St (a, b, c, d, e, f) log) =
-        printf "  %i\n %i %i\n%i %i %i\n%s"
-        (runIdentity a)
-        (runIdentity b)
-        (runIdentity c)
-        (runIdentity d)
-        (runIdentity e)
-        (runIdentity f)
-        (show (reverse log))
+    show st@(St tuple log) =
+        let Just (a, b, c, d, e, f) = unliftTuple (Just . runIdentity) tuple
+        in printf "  %i\n %i %i\n%i %i %i\n%s" a b c d e f $ showTrace st
 
 mkState tuple = St tuple []
 
@@ -114,6 +98,11 @@ unliftTuple :: (f Int -> Maybe Int) -> TupleF f -> Maybe (Int, Int, Int, Int, In
 unliftTuple fn (a, b, c, d, e, f) = do
     [a', b', c', d', e', f'] <- mapM fn [a, b, c, d, e, f]
     pure (a', b', c', d', e', f')
+
+matches :: PatternTuple -> Tuple -> Bool
+matches (a', b', c', d', e', f') (a, b, c, d, e, f) =
+    let pairs = [(a, a'), (b, b'), (c, c'), (d, d'), (e, e'), (f, f')]
+    in all (\(x, x') -> maybe True (== runIdentity x) x') pairs
 
 center_ :: Tuple -> Tuple
 center_
@@ -163,8 +152,8 @@ is_transformable patt input =
                   , matcher tuple ]
     sliding_matchers :: PatternTuple -> [(Tuple -> Bool)]
     sliding_matchers patt =
-        let match_all matchers = \tuple -> and $ fmap ($ tuple) matchers
-        in fmap match_all $ inits (matchers patt)
+        let compose matchers = \tuple -> and $ fmap ($ tuple) matchers
+        in fmap compose $ inits (matchers patt)
     matchers :: PatternTuple -> [(Tuple -> Bool)]
     matchers (a, b, c, d, e, f) =
         let matchWith x y = maybe True (== runIdentity y) x

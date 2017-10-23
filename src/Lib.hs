@@ -15,8 +15,9 @@ someFunc = do
     initial <- getInitial
     patt <- getPatt
     if is_transformable patt initial
-    then putStrLn . showTrace $ solution patt initial
-    else putStrLn "insolvable"
+        then putStrLn . showTrace $ solution patt initial
+        else putStrLn "insolvable"
+    someFunc
 
 getInput :: String -> (String -> Maybe a) -> IO a
 getInput header parse = do
